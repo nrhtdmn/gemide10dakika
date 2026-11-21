@@ -1,0 +1,2325 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>10 Dakika Terör & Sakin Liman - Çok Modlu 3D Oyun</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #05070a;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+        .font-display {
+            font-family: 'Chakra Petch', sans-serif;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #underwaterOverlay {
+            pointer-events: none;
+            background: radial-gradient(circle, rgba(6, 56, 77, 0.45) 0%, rgba(2, 24, 36, 0.88) 100%);
+            box-shadow: inset 0 0 80px rgba(0, 180, 216, 0.4);
+            transition: opacity 0.25s ease;
+        }
+        @keyframes alarmPulse {
+            0%, 100% { box-shadow: inset 0 0 50px rgba(220, 38, 38, 0.15); }
+            50% { box-shadow: inset 0 0 90px rgba(220, 38, 38, 0.45); }
+        }
+        .alarm-vignette {
+            animation: alarmPulse 2.4s infinite ease-in-out;
+        }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
+    </style>
+</head>
+<body class="text-slate-100">
+
+    <!-- 3D Oyun Tuvali -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Gizli Video Elemanı (Kamaradaki 3D TV İçin THREE.VideoTexture Kaynağı) -->
+    <video id="cabinVideoEl" playsinline loop crossorigin="anonymous" class="hidden"></video>
+
+    <!-- Su Altı Görüş Filtresi -->
+    <div id="underwaterOverlay" class="fixed inset-0 opacity-0 z-10"></div>
+
+    <!-- Alarm Kenar Parlaması (Sadece Terör Modunda) -->
+    <div id="alarmVignette" class="fixed inset-0 pointer-events-none alarm-vignette z-10 hidden"></div>
+
+    <!-- OYUN İÇİ ARAYÜZ (HUD) -->
+    <div id="hud" class="fixed inset-0 pointer-events-none z-20 hidden flex flex-col justify-between p-3 sm:p-5">
+
+        <!-- Üst Bar -->
+        <div class="flex flex-wrap justify-between items-start gap-2.5">
+
+            <!-- Sol Üst: Mod Durumu / Zamanlayıcı / Balık Sayacı -->
+            <div class="bg-slate-950/82 backdrop-blur-md border border-slate-700/70 rounded-xl p-3 sm:p-4 shadow-2xl pointer-events-auto min-w-[215px]">
+                <!-- Terör Modu Paneli -->
+                <div id="survivalHudPanel">
+                    <div class="flex items-center gap-2 text-red-400 text-xs font-bold uppercase tracking-wider mb-1">
+                        <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+                        <span>Batışa Kalan Süre</span>
+                    </div>
+                    <div id="timerDisplay" class="font-display text-3xl sm:text-4xl font-bold text-white tracking-wider">10:00</div>
+                    <div class="mt-2 flex items-center gap-1.5 text-xs">
+                        <span class="text-slate-400 mr-1">Hız:</span>
+                        <button onclick="setSimSpeed(1)" id="speed1" class="px-2 py-0.5 rounded bg-red-600 text-white font-semibold transition cursor-pointer">1x</button>
+                        <button onclick="setSimSpeed(5)" id="speed5" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition cursor-pointer">5x</button>
+                        <button onclick="setSimSpeed(10)" id="speed10" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition cursor-pointer">10x</button>
+                    </div>
+                    <div class="mt-2 text-[11px] text-slate-400 flex justify-between gap-4 border-t border-slate-800 pt-1.5">
+                        <span>Yatış: <strong id="tiltStat" class="text-amber-400">0°</strong></span>
+                        <span>Su: <strong id="waterStat" class="text-cyan-400">%0</strong></span>
+                    </div>
+                </div>
+
+                <!-- Sakin Balık Tutma Modu Paneli -->
+                <div id="calmHudPanel" class="hidden">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <span class="inline-flex items-center gap-1.5 text-teal-300 text-xs font-bold uppercase tracking-wider">
+                            <span class="w-2 h-2 rounded-full bg-teal-400"></span>
+                            Sakin Mod • Balık Tutma
+                        </span>
+                        <span class="text-[11px] px-2 py-0.5 rounded bg-teal-950/90 border border-teal-700/60 text-teal-200">Huzurlu Deniz</span>
+                    </div>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span class="text-xs text-slate-400">Tutulan Balık:</span>
+                        <span id="fishCountDisplay" class="font-display text-3xl font-bold text-teal-300">0</span>
+                    </div>
+                    <div id="fishListMini" class="mt-2 pt-2 border-t border-slate-800/80 text-[11px] text-slate-300 max-h-20 overflow-y-auto space-y-0.5">
+                        <div class="text-slate-500 italic">İskeleye veya güverte kenarına geçip olta at...</div>
+                    </div>
+                </div>
+
+                <!-- Online Oda Bilgisi -->
+                <div id="onlineHudBadge" class="hidden mt-2 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px]">
+                    <span class="text-indigo-300 font-semibold">🌐 Oda: <strong id="hudRoomCode" class="text-white">-</strong></span>
+                    <span class="text-emerald-400">● <span id="hudPeerCount">1</span> Oyuncu</span>
+                </div>
+            </div>
+
+            <!-- Orta Üst: Kamera Modu & Hızlı Araçlar -->
+            <div class="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+                <button onclick="cycleCameraMode()" id="camModeBtn" class="px-3 py-2 rounded-xl bg-slate-950/85 hover:bg-slate-900 border border-slate-700/80 text-xs font-semibold text-amber-300 shadow-lg transition cursor-pointer">
+                    📷 Kamera: 1. Şahıs (C)
+                </button>
+                <button onclick="openTvModal()" class="px-3 py-2 rounded-xl bg-slate-950/85 hover:bg-slate-900 border border-indigo-500/50 text-xs font-semibold text-indigo-300 shadow-lg transition cursor-pointer">
+                    📺 Kamaradaki TV
+                </button>
+                <button onclick="toggleChatDrawer()" id="chatToggleBtn" class="hidden px-3 py-2 rounded-xl bg-slate-950/85 hover:bg-slate-900 border border-emerald-500/50 text-xs font-semibold text-emerald-300 shadow-lg transition cursor-pointer">
+                    💬 Sohbet
+                </button>
+            </div>
+
+            <!-- Sağ Üst: Görev Takipçisi / Sakin Rehber & Envanter -->
+            <div class="bg-slate-950/82 backdrop-blur-md border border-slate-700/70 rounded-xl p-3 sm:p-4 shadow-2xl max-w-xs w-full">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                    <span id="rightPanelTitle" class="font-display text-sm font-bold uppercase tracking-wider text-amber-400">Görevler</span>
+                    <span id="deckLocation" class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-medium">Alt Güverte</span>
+                </div>
+
+                <!-- Terör Modu Görevleri -->
+                <ul id="questList" class="space-y-1.5 text-xs sm:text-sm">
+                    <li id="q-key" class="flex items-center gap-2 text-slate-200">
+                        <span class="w-4 h-4 rounded border border-slate-500 flex items-center justify-center text-[10px]"></span>
+                        <span>Köprüüstü Anahtarını Bul (Kabin)</span>
+                    </li>
+                    <li id="q-lever" class="flex items-center gap-2 text-slate-200">
+                        <span class="w-4 h-4 rounded border border-slate-500 flex items-center justify-center text-[10px]"></span>
+                        <span>Köprüüstünde Filika Kilidini Aç</span>
+                    </li>
+                    <li id="q-escape" class="flex items-center gap-2 text-slate-400">
+                        <span class="w-4 h-4 rounded border border-slate-600 flex items-center justify-center text-[10px]"></span>
+                        <span>Üst Güvertedeki Filikaya Bin</span>
+                    </li>
+                </ul>
+
+                <!-- Sakin Mod Rehberi -->
+                <ul id="calmGuideList" class="hidden space-y-1.5 text-xs text-slate-300">
+                    <li class="flex items-start gap-2">
+                        <span class="text-teal-400 font-bold">1.</span>
+                        <span>İskele veya üst güverte kenarında suya bakarak <strong class="text-white">[F]</strong> veya butona basıp olta at.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-teal-400 font-bold">2.</span>
+                        <span>Şamandıra daldığında <strong class="text-amber-300">"BALIK VURDU!"</strong> uyarısı gelir; tekrar basıp balığı çek.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-teal-400 font-bold">3.</span>
+                        <span>Orta güvertedeki TV'ye gidip veya üstteki <strong class="text-indigo-300">Kamaradaki TV</strong> butonuyla video yükleyip izle.</span>
+                    </li>
+                </ul>
+
+                <!-- Envanter Rozetleri -->
+                <div class="mt-3 pt-2 border-t border-slate-800 flex flex-wrap gap-1.5" id="inventoryBadges">
+                    <span class="text-[11px] text-slate-500 italic" id="emptyInvText">Envanter boş...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orta Ekran: Nişangah, Balık Çekme Göstergesi & Etkileşim Uyarısı -->
+        <div class="flex flex-col items-center justify-center my-auto">
+            <div id="crosshair" class="w-2.5 h-2.5 rounded-full bg-white/85 shadow-[0_0_8px_rgba(255,255,255,0.95)] transition-transform duration-150"></div>
+
+            <!-- Balık Tutma Durum Kartı -->
+            <div id="fishingStatusBanner" class="hidden mt-3 px-5 py-2.5 rounded-2xl bg-teal-950/90 border border-teal-400/80 text-teal-100 font-semibold text-sm shadow-2xl text-center">
+                <div id="fishingStatusText">Olta suda... Balığın vurmasını bekle</div>
+                <div class="w-44 h-2 bg-slate-900 rounded-full overflow-hidden mt-2 mx-auto">
+                    <div id="fishingProgressBar" class="h-full bg-gradient-to-r from-teal-400 to-amber-300 transition-all duration-100" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Etkileşim Mesajı -->
+            <div id="interactPrompt" class="mt-3 px-4 py-2 rounded-lg bg-slate-950/90 border border-amber-500/80 text-amber-300 font-semibold text-sm shadow-lg hidden">
+                [E] Etkileşime Geç
+            </div>
+
+            <!-- Bildirim Mesaj Kutusu -->
+            <div id="toastMessage" class="mt-3 px-5 py-2.5 rounded-xl bg-red-950/90 border border-red-500 text-white font-medium text-sm shadow-2xl opacity-0 transition-opacity duration-300 text-center max-w-md">
+            </div>
+        </div>
+
+        <!-- Alt Bar: Mobil Kontroller, Durum Çubukları & Online Sohbet -->
+        <div class="flex flex-col gap-2.5">
+
+            <!-- Online Sohbet Paneli (Açıldığında Görünür) -->
+            <div id="chatDrawer" class="hidden pointer-events-auto self-end w-full sm:w-80 bg-slate-950/90 backdrop-blur-md border border-indigo-500/40 rounded-2xl p-3 shadow-2xl">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-2">
+                    <span class="text-xs font-bold text-indigo-300 uppercase tracking-wider">Oda Sohbeti</span>
+                    <button onclick="toggleChatDrawer()" class="text-xs text-slate-400 hover:text-white cursor-pointer">✕</button>
+                </div>
+                <div id="chatMessages" class="h-28 overflow-y-auto space-y-1.5 text-xs mb-2 pr-1">
+                    <div class="text-slate-500 italic">Sohbet odasına bağlandın. Aynı tarayıcı sekmelerindeki oyuncular görünür.</div>
+                </div>
+                <form onsubmit="sendChatMessage(event)" class="flex gap-1.5">
+                    <input id="chatInput" type="text" maxlength="120" placeholder="Mesaj yaz..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-400">
+                    <button type="submit" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white cursor-pointer">Gönder</button>
+                </form>
+            </div>
+
+            <!-- Mobil Dokunmatik Kontroller -->
+            <div id="touchControls" class="hidden pointer-events-auto flex justify-between items-end pb-1">
+                <!-- Sol: Sanal Analog Topuz -->
+                <div id="joystickZone" class="relative w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-slate-900/70 border border-slate-600/80 flex items-center justify-center shadow-xl">
+                    <div class="w-12 h-12 rounded-full border border-dashed border-slate-500/50 pointer-events-none"></div>
+                    <div id="joystickKnob" class="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 shadow-lg border border-amber-200/60 absolute pointer-events-none" style="transform: translate(0px, 0px);"></div>
+                </div>
+
+                <!-- Sağ: Hızlı Eylem Butonları -->
+                <div class="flex flex-col gap-2 items-end">
+                    <div class="flex gap-2">
+                        <button id="btnFishMobile" class="hidden px-4 py-3 bg-teal-700/90 active:bg-teal-500 border border-teal-300 rounded-xl font-bold text-xs text-white shadow-lg">
+                            🎣 OLTA
+                        </button>
+                        <button id="btnInteractMobile" class="px-4 py-3 bg-amber-600/90 active:bg-amber-500 border border-amber-300 rounded-xl font-bold text-xs text-white shadow-lg">
+                            [E] ETKİLEŞİM
+                        </button>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="btnSprintMobile" class="px-3.5 py-2.5 bg-slate-800/90 active:bg-slate-600 border border-slate-500 rounded-xl font-semibold text-xs text-white">
+                            KOŞ
+                        </button>
+                        <button id="btnJumpMobile" class="px-3.5 py-2.5 bg-cyan-800/90 active:bg-cyan-600 border border-cyan-400 rounded-xl font-semibold text-xs text-white">
+                            ZIPLA / YÜZ
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alt Durum Çubukları ve Ayar Butonları -->
+            <div class="flex flex-wrap items-end justify-between gap-3">
+                <div id="vitalsCard" class="bg-slate-950/82 backdrop-blur-md border border-slate-800 rounded-xl p-3 w-full sm:w-80 shadow-xl">
+                    <div class="mb-2">
+                        <div class="flex justify-between text-xs font-semibold mb-1">
+                            <span class="text-cyan-400">🫧 Oksijen (Nefes)</span>
+                            <span id="oxygenText" class="text-cyan-200">%100</span>
+                        </div>
+                        <div class="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div id="oxygenBar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-400 transition-all duration-150" style="width: 100%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs font-semibold mb-1">
+                            <span class="text-emerald-400">⚡ Dayanıklılık (Koşu)</span>
+                            <span id="staminaText" class="text-emerald-200">%100</span>
+                        </div>
+                        <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                            <div id="staminaBar" class="h-full bg-gradient-to-r from-emerald-500 to-lime-400 transition-all duration-150" style="width: 100%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sağ Alt: Kontrol Butonları -->
+                <div class="flex flex-wrap items-center gap-2 pointer-events-auto">
+                    <button id="fishDesktopBtn" onclick="handleFishingAction()" class="hidden px-3.5 py-2 rounded-lg bg-teal-700/90 hover:bg-teal-600 border border-teal-400/70 text-xs font-bold text-white shadow transition cursor-pointer">
+                        🎣 Olta At / Çek (F)
+                    </button>
+                    <button onclick="toggleTouchControls()" class="px-3 py-2 rounded-lg bg-slate-900/85 hover:bg-slate-800 border border-slate-700 text-xs text-slate-300 transition cursor-pointer">
+                        📱 Dokunmatik
+                    </button>
+                    <button onclick="toggleAudioMute()" id="muteBtn" class="px-3 py-2 rounded-lg bg-slate-900/85 hover:bg-slate-800 border border-slate-700 text-xs text-slate-300 transition cursor-pointer">
+                        🔊 Ses Açık
+                    </button>
+                    <button onclick="location.reload()" class="px-3 py-2 rounded-lg bg-slate-900/85 hover:bg-red-950 border border-slate-700 hover:border-red-700 text-xs text-slate-300 transition cursor-pointer">
+                        🚪 Menü
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- KAMARA TV KONTROL MODALI -->
+    <div id="tvModal" class="fixed inset-0 z-40 hidden flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
+        <div class="max-w-lg w-full bg-slate-900 border border-indigo-500/40 rounded-2xl p-5 sm:p-6 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+                <div>
+                    <span class="text-[11px] uppercase tracking-wider text-indigo-400 font-bold">Kabin Eğlence Sistemi • 3D VideoTexture</span>
+                    <h3 class="font-display text-xl font-bold text-white">Kamaradaki Televizyon</h3>
+                </div>
+                <button onclick="closeTvModal()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs cursor-pointer">✕ Kapat</button>
+            </div>
+
+            <p class="text-xs text-slate-300 mb-4 leading-relaxed">
+                Cihazından bir video dosyası seçebilir veya yerleşik renkli sinema test akışını başlatabilirsin. Görüntü doğrudan kamaradaki 3D TV ekranına yansıtılır.
+            </p>
+
+            <!-- Dosya Yükleme -->
+            <label class="block w-full mb-4 cursor-pointer">
+                <div class="border-2 border-dashed border-indigo-500/50 hover:border-indigo-400 bg-slate-950/70 rounded-xl p-4 text-center transition">
+                    <div class="text-sm font-semibold text-indigo-300">📁 Bilgisayar veya Telefondan Video Yükle</div>
+                    <div id="tvFileName" class="text-xs text-slate-400 mt-1">MP4, WebM, OGG desteklenir (Yerel oynatma)</div>
+                </div>
+                <input id="tvFileInput" type="file" accept="video/*" onchange="handleTvFileUpload(event)" class="hidden">
+            </label>
+
+            <!-- Hazır Test Ekranı Butonu -->
+            <div class="flex flex-wrap gap-2 mb-4">
+                <button onclick="startSynthTvChannel()" class="px-3.5 py-2 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-400/50 text-xs font-semibold text-indigo-200 transition cursor-pointer">
+                    🌊 Deniz Feneri / Sahil Test Yayını
+                </button>
+                <button onclick="toggleTvPlayPause()" id="tvPlayPauseBtn" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition cursor-pointer">
+                    ▶ Oynat / Duraklat
+                </button>
+                <button onclick="toggleTvMute()" id="tvMuteBtn" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition cursor-pointer">
+                    🔇 TV Sesi Kapalı
+                </button>
+            </div>
+
+            <!-- Ses Seviyesi -->
+            <div class="flex items-center gap-3 text-xs text-slate-300 mb-5">
+                <span class="w-20">TV Sesi:</span>
+                <input id="tvVolumeSlider" type="range" min="0" max="1" step="0.05" value="0.5" oninput="setTvVolume(this.value)" class="flex-1 accent-indigo-500">
+                <span id="tvVolumeLabel" class="w-10 text-right">%50</span>
+            </div>
+
+            <button onclick="closeTvModal()" class="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-sm uppercase tracking-wider transition cursor-pointer">
+                Oyuna Dön ve Ekranı İzle
+            </button>
+        </div>
+    </div>
+
+    <!-- BAŞLANGIÇ EKRANI -->
+    <div id="startScreen" class="fixed inset-0 z-30 flex items-center justify-center bg-gradient-to-b from-slate-950/92 via-slate-900/88 to-slate-950/95 backdrop-blur-sm p-3 sm:p-5 overflow-y-auto">
+        <div class="max-w-2xl w-full bg-slate-950/92 border border-slate-700/80 rounded-2xl p-5 sm:p-7 shadow-[0_0_70px_rgba(14,165,233,0.18)] my-auto">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <span class="inline-block px-3 py-1 rounded-full bg-sky-950 border border-sky-700/70 text-sky-300 text-xs font-bold tracking-wider uppercase">
+                    3D Deniz Simülasyonu • Çoklu Mod
+                </span>
+                <span class="text-xs text-slate-400">Kamera (C) • TV • Balık Tutma • Online</span>
+            </div>
+
+            <h1 class="font-display text-3xl sm:text-5xl font-extrabold text-white tracking-tight mb-2">
+                10 DAKİKA <span class="text-red-500">TERÖR</span> <span class="text-teal-400 text-2xl sm:text-3xl">&amp; SAKİN LİMAN</span>
+            </h1>
+            <p class="text-slate-300 text-xs sm:text-sm leading-relaxed mb-5">
+                İster fırtınada batan <strong class="text-white">MV Karadeniz</strong>'den 10 dakika içinde filikayla kaçış mücadelesi ver, ister <strong class="text-teal-300">Sakin Mod</strong>'da iskele ve güvertede balık tutup kamaradaki 3D TV'de video izle. Dilersen aynı odadaki diğer oyuncularla canlı bağlan!
+            </p>
+
+            <!-- 1. OYUN MODU SEÇİMİ -->
+            <div class="mb-4">
+                <div class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">1. Oyun Modu Seç</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <button type="button" id="modeSurvivalCard" onclick="selectGameMode('survival')" class="text-left p-3.5 rounded-xl border-2 border-red-500 bg-red-950/30 transition cursor-pointer">
+                        <div class="font-display font-bold text-base text-white flex items-center justify-between">
+                            <span>🚨 10 Dakika Terör</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-red-600 text-white uppercase">Hayatta Kalma</span>
+                        </div>
+                        <p class="text-xs text-slate-300 mt-1">Gemi 10 dakikada batar, sular yükselir, ışıklar söner. Anahtarı bulup filikaya ulaş.</p>
+                    </button>
+
+                    <button type="button" id="modeCalmCard" onclick="selectGameMode('calm')" class="text-left p-3.5 rounded-xl border border-slate-700 bg-slate-900/70 hover:border-teal-500/60 transition cursor-pointer">
+                        <div class="font-display font-bold text-base text-white flex items-center justify-between">
+                            <span>🎣 Sakin Mod • Balık Tutma</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-teal-700 text-teal-100 uppercase">Huzurlu</span>
+                        </div>
+                        <p class="text-xs text-slate-300 mt-1">Batış süresi ve alarm yok. Sakin denizde olta at, balık topla ve kamarada TV izle.</p>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 2. ONLINE ODA & İSİM AYARI -->
+            <div class="mb-5 bg-slate-900/80 border border-slate-800 rounded-xl p-3.5">
+                <div class="flex items-center justify-between mb-2.5">
+                    <span class="text-xs font-bold uppercase tracking-wider text-indigo-300">2. Online Mod (Çok Oyunculu Oda)</span>
+                    <label class="inline-flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                        <input id="onlineToggle" type="checkbox" checked class="w-4 h-4 accent-indigo-500 rounded">
+                        <span>Online Senkronizasyon Açık</span>
+                    </label>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                        <label class="block text-[11px] text-slate-400 mb-1">Oyuncu Adın</label>
+                        <input id="playerNameInput" type="text" maxlength="18" value="Kaptan" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] text-slate-400 mb-1">Oda Kodu</label>
+                        <div class="flex gap-1.5">
+                            <input id="roomCodeInput" type="text" maxlength="12" value="LIMAN01" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white uppercase focus:outline-none focus:border-indigo-400">
+                            <button type="button" onclick="randomRoomCode()" class="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 cursor-pointer" title="Rastgele Kod">🎲</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-2">
+                    İpucu: Aynı tarayıcıda farklı sekmeler açıp aynı <strong class="text-indigo-300">Oda Kodu</strong> ile girersen diğer oyuncuları 3D olarak gemide/iskelede görebilir ve sohbet edebilirsin.
+                </div>
+            </div>
+
+            <!-- Kontroller Özeti -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-left bg-slate-900/90 border border-slate-800 rounded-xl p-3 mb-5 text-[11px]">
+                <div><span class="text-amber-400 font-bold">WASD / Ok:</span> <span class="text-slate-300">Hareket</span></div>
+                <div><span class="text-amber-400 font-bold">Fare / Sürükle:</span> <span class="text-slate-300">Bakış</span></div>
+                <div><span class="text-amber-400 font-bold">E / Tık:</span> <span class="text-slate-300">Etkileşim / TV</span></div>
+                <div><span class="text-teal-400 font-bold">F:</span> <span class="text-slate-300">Olta At / Çek</span></div>
+                <div><span class="text-amber-400 font-bold">Space:</span> <span class="text-slate-300">Zıpla / Yüz</span></div>
+                <div><span class="text-amber-400 font-bold">Shift:</span> <span class="text-slate-300">Koşu</span></div>
+                <div><span class="text-amber-400 font-bold">C:</span> <span class="text-slate-300">Kamera Değiştir</span></div>
+                <div><span class="text-amber-400 font-bold">Mobil:</span> <span class="text-slate-300">Analog + Tuşlar</span></div>
+            </div>
+
+            <button id="startBtn" onclick="startGame()" class="w-full py-3.5 sm:py-4 rounded-xl bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-display font-bold text-base sm:text-lg tracking-wider uppercase shadow-lg transition transform hover:scale-[1.01] active:scale-[0.99] cursor-pointer">
+                Oyuna Başla
+            </button>
+        </div>
+    </div>
+
+    <!-- OYUN SONU / ZAFER EKRANI -->
+    <div id="endScreen" class="fixed inset-0 z-40 hidden flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
+        <div class="max-w-md w-full bg-slate-900 border border-slate-700 rounded-2xl p-6 sm:p-8 text-center shadow-2xl">
+            <div id="endBadge" class="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-3"></div>
+            <h2 id="endTitle" class="font-display text-3xl sm:text-4xl font-extrabold text-white mb-3"></h2>
+            <p id="endDesc" class="text-slate-300 text-sm leading-relaxed mb-6"></p>
+            <div id="endStats" class="bg-slate-950 rounded-xl p-4 mb-6 text-xs text-slate-400 space-y-1 border border-slate-800"></div>
+            <button onclick="location.reload()" class="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-base uppercase tracking-wider transition cursor-pointer">
+                Tekrar Oyna
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================================
+        // 1. PROSEDÜREL SES MOTORU (Terör Fırtınası + Sakin Deniz Atmosferi)
+        // ============================================================================
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.isMuted = false;
+                this.masterGain = null;
+                this.alarmInterval = null;
+                this.creakInterval = null;
+                this.calmWaveInterval = null;
+                this.stepTimer = 0;
+            }
+
+            init(mode = 'survival') {
+                if (this.ctx) {
+                    this.applyModeAudio(mode);
+                    return;
+                }
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioCtx();
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.gain.value = 0.5;
+                this.masterGain.connect(this.ctx.destination);
+
+                this.startAmbientNoise();
+                this.applyModeAudio(mode);
+            }
+
+            applyModeAudio(mode) {
+                clearInterval(this.alarmInterval);
+                clearInterval(this.creakInterval);
+                clearInterval(this.calmWaveInterval);
+                this.alarmInterval = null;
+                this.creakInterval = null;
+                this.calmWaveInterval = null;
+
+                if (this.noiseGain) {
+                    this.noiseGain.gain.setTargetAtTime(mode === 'calm' ? 0.08 : 0.16, this.ctx.currentTime, 0.4);
+                }
+
+                if (mode === 'survival') {
+                    this.startAlarmSiren();
+                    this.startCreakingMetal();
+                } else {
+                    this.startCalmWaves();
+                }
+            }
+
+            toggleMute() {
+                this.isMuted = !this.isMuted;
+                if (this.masterGain) {
+                    this.masterGain.gain.value = this.isMuted ? 0 : 0.5;
+                }
+                return this.isMuted;
+            }
+
+            startAmbientNoise() {
+                const bufferSize = this.ctx.sampleRate * 3;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                let lastOut = 0.0;
+                for (let i = 0; i < bufferSize; i++) {
+                    const white = Math.random() * 2 - 1;
+                    data[i] = (lastOut + (0.04 * white)) / 1.04;
+                    lastOut = data[i];
+                    data[i] *= 2.4;
+                }
+
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+                noise.loop = true;
+
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 420;
+
+                const gain = this.ctx.createGain();
+                gain.gain.value = 0.14;
+                this.noiseGain = gain;
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.masterGain);
+                noise.start();
+            }
+
+            startCalmWaves() {
+                const playGentleWave = () => {
+                    if (!this.ctx || this.isMuted || !gameState.isRunning) return;
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(110, now);
+                    osc.frequency.exponentialRampToValueAtTime(68, now + 2.2);
+
+                    gain.gain.setValueAtTime(0.001, now);
+                    gain.gain.linearRampToValueAtTime(0.05, now + 0.9);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 2.3);
+
+                    osc.connect(gain);
+                    gain.connect(this.masterGain);
+                    osc.start(now);
+                    osc.stop(now + 2.35);
+                };
+                playGentleWave();
+                this.calmWaveInterval = setInterval(playGentleWave, 3600);
+            }
+
+            startAlarmSiren() {
+                const triggerSiren = () => {
+                    if (!this.ctx || this.isMuted || !gameState.isRunning || gameState.mode !== 'survival') return;
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(520, now);
+                    osc.frequency.linearRampToValueAtTime(740, now + 0.55);
+                    osc.frequency.linearRampToValueAtTime(480, now + 1.1);
+
+                    gain.gain.setValueAtTime(0.001, now);
+                    gain.gain.linearRampToValueAtTime(0.075, now + 0.15);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+
+                    osc.connect(gain);
+                    gain.connect(this.masterGain);
+                    osc.start(now);
+                    osc.stop(now + 1.25);
+                };
+                triggerSiren();
+                this.alarmInterval = setInterval(triggerSiren, 4400);
+            }
+
+            startCreakingMetal() {
+                this.creakInterval = setInterval(() => {
+                    if (!this.ctx || this.isMuted || !gameState.isRunning || gameState.mode !== 'survival') return;
+                    if (Math.random() > 0.55) return;
+
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    const filter = this.ctx.createBiquadFilter();
+
+                    osc.type = 'sawtooth';
+                    const baseFreq = 90 + Math.random() * 140;
+                    osc.frequency.setValueAtTime(baseFreq, now);
+                    osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.65, now + 1.4);
+
+                    filter.type = 'bandpass';
+                    filter.frequency.value = 320;
+                    filter.Q.value = 6;
+
+                    gain.gain.setValueAtTime(0.001, now);
+                    gain.gain.linearRampToValueAtTime(0.085, now + 0.3);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+
+                    osc.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(this.masterGain);
+                    osc.start(now);
+                    osc.stop(now + 1.55);
+                }, 5200);
+            }
+
+            playStep(inWater) {
+                if (!this.ctx || this.isMuted) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                if (inWater) {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(180 + Math.random() * 80, now);
+                    osc.frequency.exponentialRampToValueAtTime(60, now + 0.14);
+                    gain.gain.setValueAtTime(0.11, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                } else {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(95, now);
+                    osc.frequency.exponentialRampToValueAtTime(35, now + 0.08);
+                    gain.gain.setValueAtTime(0.12, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+                }
+
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                osc.start(now);
+                osc.stop(now + 0.16);
+            }
+
+            playInteract(success = true) {
+                if (!this.ctx || this.isMuted) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sine';
+                if (success) {
+                    osc.frequency.setValueAtTime(440, now);
+                    osc.frequency.setValueAtTime(660, now + 0.09);
+                } else {
+                    osc.frequency.setValueAtTime(160, now);
+                    osc.frequency.linearRampToValueAtTime(110, now + 0.18);
+                }
+
+                gain.gain.setValueAtTime(0.14, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                osc.start(now);
+                osc.stop(now + 0.24);
+            }
+
+            playFishCatch() {
+                if (!this.ctx || this.isMuted) return;
+                const now = this.ctx.currentTime;
+                const notes = [523.25, 659.25, 783.99, 1046.5];
+                notes.forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, now + i * 0.08);
+                    gain.gain.setValueAtTime(0.12, now + i * 0.08);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.22);
+                    osc.connect(gain);
+                    gain.connect(this.masterGain);
+                    osc.start(now + i * 0.08);
+                    osc.stop(now + i * 0.08 + 0.24);
+                });
+            }
+        }
+
+        const soundEngine = new SoundEngine();
+
+        // ============================================================================
+        // 2. OYUN DURUMU VE SABİTLER
+        // ============================================================================
+        const TOTAL_SINK_TIME = 600;
+        const gameState = {
+            mode: 'survival', // 'survival' | 'calm'
+            isRunning: false,
+            isGameOver: false,
+            timeRemaining: TOTAL_SINK_TIME,
+            simSpeed: 1,
+            hasBridgeKey: false,
+            lifeboatUnlocked: false,
+            oxygen: 100,
+            stamina: 100,
+            waterLevelLocal: -0.5,
+            shipRoll: 0,
+            shipPitch: 0,
+            cameraMode: 0, // 0: 1. Şahıs FPS, 1: 3. Şahıs Omuz Üstü, 2: Güverte/Kabin Gözlem Kamerası
+            onlineEnabled: true,
+            playerId: 'p_' + Math.random().toString(36).slice(2, 8),
+            playerName: 'Kaptan',
+            roomCode: 'LIMAN01',
+            fishing: {
+                state: 'idle', // 'idle' | 'casting' | 'waiting' | 'bite'
+                timer: 0,
+                biteWindow: 0,
+                caughtCount: 0,
+                caughtList: []
+            }
+        };
+
+        const player = {
+            pos: new THREE.Vector3(0, 0, 12),
+            vel: new THREE.Vector3(0, 0, 0),
+            yaw: Math.PI,
+            pitch: 0,
+            height: 1.65,
+            radius: 0.42,
+            onGround: false,
+            isUnderwater: false
+        };
+
+        const keys = {};
+        let isPointerLocked = false;
+        let touchLookId = null;
+        let lastTouchX = 0;
+        let lastTouchY = 0;
+
+        // ============================================================================
+        // 3. THREE.JS SAHNE, KAMERALAR, GEMİ, İSKELE, BALIK TUTMA & 3D TV
+        // ============================================================================
+        const canvas = document.getElementById('gameCanvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x030712);
+        scene.fog = new THREE.FogExp2(0x040914, 0.022);
+
+        const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 180);
+
+        const shipGroup = new THREE.Group();
+        scene.add(shipGroup);
+        shipGroup.add(camera);
+
+        // Oyuncu Görsel Gövdesi (3. Şahıs ve Online Oyuncular İçin)
+        function createPlayerAvatarMesh(colorHex = 0xf59e0b, labelText = '') {
+            const group = new THREE.Group();
+            const bodyMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.5 });
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xfde68a, roughness: 0.4 });
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.95, 0.35), bodyMat);
+            torso.position.y = 0.95;
+            torso.castShadow = true;
+
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), headMat);
+            head.position.y = 1.68;
+            head.castShadow = true;
+
+            const visor = new THREE.Mesh(
+                new THREE.BoxGeometry(0.36, 0.12, 0.08),
+                new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+            );
+            visor.position.set(0, 1.7, -0.2);
+
+            group.add(torso, head, visor);
+
+            if (labelText) {
+                const c = document.createElement('canvas');
+                c.width = 256; c.height = 64;
+                const ctx = c.getContext('2d');
+                ctx.fillStyle = 'rgba(2, 6, 23, 0.75)';
+                ctx.fillRect(0, 8, 256, 48);
+                ctx.font = 'bold 24px Inter, sans-serif';
+                ctx.fillStyle = '#e2e8f0';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(labelText, 128, 32);
+
+                const tex = new THREE.CanvasTexture(c);
+                const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+                sprite.position.y = 2.25;
+                sprite.scale.set(1.5, 0.38, 1);
+                group.add(sprite);
+            }
+
+            return group;
+        }
+
+        const localAvatar = createPlayerAvatarMesh(0xf59e0b, '');
+        localAvatar.visible = false;
+        shipGroup.add(localAvatar);
+
+        // Online Uzak Oyuncular Haritası: id -> { mesh, targetPos, targetYaw, lastSeen }
+        const remotePlayers = new Map();
+
+        const colliders = [];
+        const interactables = [];
+        const shipLights = [];
+
+        function createMetalTexture(baseHex, lineHex, gridCount = 4) {
+            const c = document.createElement('canvas');
+            c.width = 256; c.height = 256;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = baseHex;
+            ctx.fillRect(0, 0, 256, 256);
+
+            for (let i = 0; i < 60; i++) {
+                ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.14})`;
+                ctx.fillRect(Math.random() * 256, Math.random() * 256, Math.random() * 30, Math.random() * 30);
+            }
+
+            ctx.strokeStyle = lineHex;
+            ctx.lineWidth = 2;
+            const step = 256 / gridCount;
+            for (let i = 0; i <= gridCount; i++) {
+                ctx.beginPath(); ctx.moveTo(i * step, 0); ctx.lineTo(i * step, 256); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i * step); ctx.lineTo(256, i * step); ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        const hullTex = createMetalTexture('#1e293b', '#0f172a', 4);
+        const floorTex = createMetalTexture('#334155', '#1e293b', 6);
+        const woodTex = createMetalTexture('#452719', '#2b160d', 8);
+
+        const matWall = new THREE.MeshStandardMaterial({ map: hullTex, roughness: 0.7, metalness: 0.4 });
+        const matFloor = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.8, metalness: 0.3 });
+        const matWood = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.65, metalness: 0.1 });
+        const matGlass = new THREE.MeshPhysicalMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.25, roughness: 0.1 });
+        const matRust = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.85, metalness: 0.5 });
+
+        function addBox(w, h, d, x, y, z, material, addCollision = true) {
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mesh = new THREE.Mesh(geo, material);
+            mesh.position.set(x, y, z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            shipGroup.add(mesh);
+
+            if (addCollision) {
+                colliders.push({
+                    minX: x - w / 2, maxX: x + w / 2,
+                    minY: y - h / 2, maxY: y + h / 2,
+                    minZ: z - d / 2, maxZ: z + d / 2,
+                    mesh: mesh,
+                    active: true
+                });
+            }
+            return mesh;
+        }
+
+        function addStairs(x, yStart, zStart, width, height, length, dirZ = -1) {
+            const steps = 12;
+            const stepH = height / steps;
+            const stepD = length / steps;
+            for (let i = 0; i < steps; i++) {
+                const sy = yStart + stepH * (i + 0.5);
+                const sz = zStart + dirZ * (stepD * (i + 0.5));
+                addBox(width, stepH, stepD + 0.08, x, sy, sz, matFloor, true);
+            }
+        }
+
+        function addShipLight(x, y, z, deckY, isRed = false, intensity = 1.6, distance = 14) {
+            const light = new THREE.PointLight(isRed ? 0xff2a2a : 0xffd28a, intensity, distance);
+            light.position.set(x, y, z);
+            shipGroup.add(light);
+
+            const bulbMat = new THREE.MeshBasicMaterial({ color: isRed ? 0xff3b3b : 0xffe4a3 });
+            const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.2), bulbMat);
+            bulb.position.set(x, y + 0.08, z);
+            shipGroup.add(bulb);
+
+            shipLights.push({ light, bulbMat, deckY, baseIntensity: intensity, isRed });
+        }
+
+        function addDoor(x, y, z, w, h, d, options = {}) {
+            const doorMat = new THREE.MeshStandardMaterial({
+                color: options.locked ? 0x991b1b : 0xb45309,
+                roughness: 0.5,
+                metalness: 0.6
+            });
+            const mesh = addBox(w, h, d, x, y + h / 2, z, doorMat, true);
+            const colObj = colliders[colliders.length - 1];
+
+            const doorData = {
+                mesh,
+                colObj,
+                isOpen: false,
+                locked: options.locked || false,
+                reqKey: options.reqKey || false,
+                origX: x,
+                origZ: z,
+                axis: options.axis || 'z'
+            };
+
+            interactables.push({
+                mesh,
+                type: 'door',
+                label: options.locked ? '[E] Kilitli Kapı (Köprüüstü Anahtarı Gerekli)' : '[E] Su Geçirmez Kapıyı Aç',
+                range: 3.0,
+                data: doorData
+            });
+            return doorData;
+        }
+
+        // ============================================================================
+        // 4. GEMİ MİMARİSİ, KAMARA TV'Sİ VE BALIK TUTMA OLTASI
+        // ============================================================================
+        let tvScreenMesh = null;
+        let tvTexture = null;
+        let synthCanvas = null;
+        let synthCtx = null;
+        let synthInterval = null;
+        let usingSynthTv = true;
+
+        function initSynthTvCanvas() {
+            synthCanvas = document.createElement('canvas');
+            synthCanvas.width = 640;
+            synthCanvas.height = 360;
+            synthCtx = synthCanvas.getContext('2d');
+
+            tvTexture = new THREE.CanvasTexture(synthCanvas);
+            tvTexture.minFilter = THREE.LinearFilter;
+            tvTexture.magFilter = THREE.LinearFilter;
+
+            const drawFrame = () => {
+                if (!synthCtx) return;
+                const t = performance.now() * 0.001;
+                const grad = synthCtx.createLinearGradient(0, 0, 0, 360);
+                grad.addColorStop(0, '#0f172a');
+                grad.addColorStop(0.55, '#1e3a8a');
+                grad.addColorStop(0.56, '#0284c7');
+                grad.addColorStop(1, '#082f49');
+                synthCtx.fillStyle = grad;
+                synthCtx.fillRect(0, 0, 640, 360);
+
+                // Güneş / Ay
+                synthCtx.fillStyle = 'rgba(253, 224, 71, 0.85)';
+                synthCtx.beginPath();
+                synthCtx.arc(480, 105, 34, 0, Math.PI * 2);
+                synthCtx.fill();
+
+                // Dalga çizgileri
+                synthCtx.strokeStyle = 'rgba(186, 230, 253, 0.55)';
+                synthCtx.lineWidth = 3;
+                for (let row = 0; row < 6; row++) {
+                    synthCtx.beginPath();
+                    for (let x = 0; x <= 640; x += 20) {
+                        const wy = 215 + row * 22 + Math.sin(x * 0.02 + t * 2.5 + row) * 6;
+                        if (x === 0) synthCtx.moveTo(x, wy);
+                        else synthCtx.lineTo(x, wy);
+                    }
+                    synthCtx.stroke();
+                }
+
+                // Ekran yazısı
+                synthCtx.fillStyle = 'rgba(255,255,255,0.9)';
+                synthCtx.font = 'bold 24px Inter, sans-serif';
+                synthCtx.fillText('KAMARA TV • VİDEO YÜKLEMEK İÇİN [E] BAS', 32, 48);
+                synthCtx.font = '16px Inter, sans-serif';
+                synthCtx.fillStyle = '#93c5fd';
+                synthCtx.fillText('Canlı Deniz Yayını Aktif • ' + new Date().toLocaleTimeString('tr-TR'), 32, 78);
+
+                if (usingSynthTv && tvTexture) {
+                    tvTexture.needsUpdate = true;
+                }
+            };
+
+            drawFrame();
+            synthInterval = setInterval(drawFrame, 60);
+        }
+
+        function setTvSourceToVideoElement(videoEl) {
+            usingSynthTv = false;
+            tvTexture = new THREE.VideoTexture(videoEl);
+            tvTexture.minFilter = THREE.LinearFilter;
+            tvTexture.magFilter = THREE.LinearFilter;
+            tvTexture.format = THREE.RGBAFormat;
+            if (tvScreenMesh) {
+                tvScreenMesh.material.map = tvTexture;
+                tvScreenMesh.material.needsUpdate = true;
+            }
+        }
+
+        function startSynthTvChannel() {
+            const vid = document.getElementById('cabinVideoEl');
+            vid.pause();
+            usingSynthTv = true;
+            initSynthTvCanvas();
+            if (tvScreenMesh) {
+                tvScreenMesh.material.map = tvTexture;
+                tvScreenMesh.material.needsUpdate = true;
+            }
+            showToast('Kamaradaki 3D TV sahil/deniz yayınını oynatıyor.', 'border-indigo-400 bg-slate-950/95');
+        }
+
+        function handleTvFileUpload(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            const url = URL.createObjectURL(file);
+            const vid = document.getElementById('cabinVideoEl');
+            vid.src = url;
+            vid.muted = false;
+            vid.volume = parseFloat(document.getElementById('tvVolumeSlider').value || '0.5');
+            document.getElementById('tvFileName').textContent = 'Seçilen Dosya: ' + file.name;
+            setTvSourceToVideoElement(vid);
+            vid.play().then(() => {
+                document.getElementById('tvPlayPauseBtn').textContent = '⏸ Duraklat';
+                document.getElementById('tvMuteBtn').textContent = vid.muted ? '🔇 TV Sesi Kapalı' : '🔊 TV Sesi Açık';
+                showToast(`"${file.name}" kamaradaki 3D TV'de oynatılıyor!`, 'border-indigo-400 bg-indigo-950/90');
+            }).catch(() => {
+                showToast('Video yüklendi; oynatmak için Oynat butonuna bas.', 'border-amber-400 bg-slate-950/90');
+            });
+        }
+
+        function toggleTvPlayPause() {
+            const vid = document.getElementById('cabinVideoEl');
+            if (usingSynthTv) {
+                showToast('Test yayını otomatik akıyor; kendi videon için dosya yükleyebilirsin.', 'border-indigo-400 bg-slate-950/90');
+                return;
+            }
+            if (vid.paused) {
+                vid.play();
+                document.getElementById('tvPlayPauseBtn').textContent = '⏸ Duraklat';
+            } else {
+                vid.pause();
+                document.getElementById('tvPlayPauseBtn').textContent = '▶ Oynat';
+            }
+        }
+
+        function toggleTvMute() {
+            const vid = document.getElementById('cabinVideoEl');
+            vid.muted = !vid.muted;
+            document.getElementById('tvMuteBtn').textContent = vid.muted ? '🔇 TV Sesi Kapalı' : '🔊 TV Sesi Açık';
+        }
+
+        function setTvVolume(val) {
+            const num = parseFloat(val);
+            document.getElementById('cabinVideoEl').volume = num;
+            document.getElementById('tvVolumeLabel').textContent = `%${Math.round(num * 100)}`;
+        }
+
+        function openTvModal() {
+            if (document.pointerLockElement) document.exitPointerLock();
+            document.getElementById('tvModal').classList.remove('hidden');
+        }
+
+        function closeTvModal() {
+            document.getElementById('tvModal').classList.add('hidden');
+            if (gameState.isRunning && window.innerWidth > 768 && !isPointerLocked) {
+                canvas.requestPointerLock();
+            }
+        }
+
+        // 3D Olta Kamışı & Şamandıra
+        const rodGroup = new THREE.Group();
+        const rodStick = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.02, 0.04, 2.2, 8),
+            new THREE.MeshStandardMaterial({ color: 0x0f766e, roughness: 0.4 })
+        );
+        rodStick.rotation.x = Math.PI / 3;
+        rodStick.position.set(0, 0.5, -0.8);
+        rodGroup.add(rodStick);
+        rodGroup.visible = false;
+        shipGroup.add(rodGroup);
+
+        const bobberMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(0.14, 12, 12),
+            new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0x7f1d1d, emissiveIntensity: 0.4 })
+        );
+        bobberMesh.visible = false;
+        shipGroup.add(bobberMesh);
+
+        const fishingLineGeo = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, -1, -2)
+        ]);
+        const fishingLine = new THREE.Line(
+            fishingLineGeo,
+            new THREE.LineBasicMaterial({ color: 0xf8fafc, transparent: true, opacity: 0.85 })
+        );
+        fishingLine.visible = false;
+        shipGroup.add(fishingLine);
+
+        function buildShip() {
+            window.ambientLight = new THREE.AmbientLight(0x1e293b, 0.6);
+            scene.add(window.ambientLight);
+
+            const lightningLight = new THREE.DirectionalLight(0x93c5fd, 0.25);
+            lightningLight.position.set(20, 40, -20);
+            scene.add(lightningLight);
+            window.lightningLight = lightningLight;
+
+            // --- 1. ALT GÜVERTE (Y = 0.0) ---
+            addBox(12, 0.4, 32, 0, -0.2, 0, matFloor);
+            addBox(0.4, 3.5, 32, -6, 1.75, 0, matWall);
+            addBox(0.4, 3.5, 32, 6, 1.75, 0, matWall);
+            addBox(12, 3.5, 0.4, 0, 1.75, -16, matWall);
+            addBox(12, 3.5, 0.4, 0, 1.75, 16, matWall);
+
+            addBox(2.4, 2.4, 4.5, -2.5, 1.2, 7, matRust);
+            addBox(2.4, 2.4, 4.5, 2.5, 1.2, 7, matRust);
+            addBox(1.5, 1.2, 2.0, -3.8, 0.6, -3, matRust);
+
+            addBox(4.6, 3.5, 0.4, -3.7, 1.75, 2, matWall);
+            addBox(4.6, 3.5, 0.4, 3.7, 1.75, 2, matWall);
+            addBox(2.8, 1.1, 0.4, 0, 2.95, 2, matWall);
+            addDoor(0, 0, 2, 2.6, 2.4, 0.3, { locked: false });
+
+            addStairs(0, 0, -5.5, 2.6, 3.5, 5.5, -1);
+
+            addShipLight(0, 3.1, 11, 0, true, 1.8);
+            addShipLight(0, 3.1, 4, 0, false, 1.5);
+            addShipLight(0, 3.1, -4, 0, true, 1.8);
+            addShipLight(0, 3.1, -11, 0, false, 1.5);
+
+            // --- 2. ORTA GÜVERTE (Y = 3.5) - Kabinler, TV Salonu & Dinlenme Alanı ---
+            addBox(12, 0.3, 10.5, 0, 3.35, 10.75, matWood);
+            addBox(12, 0.3, 11.0, 0, 3.35, 0.0, matWood);
+            addBox(4.5, 0.3, 6.0, -3.75, 3.35, -8.5, matWood);
+            addBox(4.5, 0.3, 6.0, 3.75, 3.35, -8.5, matWood);
+            addBox(12, 0.3, 4.5, 0, 3.35, -13.75, matWood);
+
+            addBox(0.4, 3.5, 32, -6, 5.25, 0, matWall);
+            addBox(0.4, 3.5, 32, 6, 5.25, 0, matWall);
+            addBox(12, 3.5, 0.4, 0, 5.25, -16, matWall);
+            addBox(12, 3.5, 0.4, 0, 5.25, 16, matWall);
+
+            addBox(0.3, 3.5, 11.0, -2.2, 5.25, 9.5, matWood);
+            addBox(0.3, 3.5, 12.0, -2.2, 5.25, -6.0, matWood);
+            addBox(0.3, 1.1, 2.0, -2.2, 6.45, 2.0, matWood);
+            addDoor(-2.2, 3.5, 2.0, 0.25, 2.4, 1.9, { locked: false });
+
+            addBox(0.3, 3.5, 13.0, 2.2, 5.25, 7.5, matWood);
+            addBox(0.3, 3.5, 11.0, 2.2, 5.25, -8.5, matWood);
+            addBox(0.3, 1.1, 2.0, 2.2, 6.45, -1.0, matWood);
+            addDoor(2.2, 3.5, -1.0, 0.25, 2.4, 1.9, { locked: false });
+
+            // Kabin Mobilyaları ve Rahat Kanepe
+            addBox(1.8, 0.7, 1.0, -4.5, 3.85, 2.5, matRust);
+            addBox(1.2, 0.8, 1.2, -4.5, 3.9, 0.5, matWood);
+            addBox(1.8, 0.7, 1.0, 4.5, 3.85, -1.5, matRust);
+            addBox(2.5, 0.8, 1.4, 0, 3.9, 11.5, matWood);
+
+            // Kamara Koltuğu (TV karşısında: X=4.2, Y=3.8, Z=1.5)
+            const sofaMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.75 });
+            addBox(1.1, 0.65, 2.2, 4.6, 3.82, 1.5, sofaMat);
+
+            // KAMARADAKİ 3D TELEVİZYON (Duvara/Sehpaya Monteli: X=5.65, Y=5.1, Z=1.5)
+            initSynthTvCanvas();
+            const tvFrame = addBox(0.18, 1.45, 2.5, 5.72, 5.1, 1.5, new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.3, metalness: 0.8 }), false);
+            const tvScreenGeo = new THREE.PlaneGeometry(2.3, 1.28);
+            tvScreenGeo.rotateY(-Math.PI / 2);
+            const tvScreenMat = new THREE.MeshBasicMaterial({ map: tvTexture });
+            tvScreenMesh = new THREE.Mesh(tvScreenGeo, tvScreenMat);
+            tvScreenMesh.position.set(5.61, 5.1, 1.5);
+            shipGroup.add(tvScreenMesh);
+
+            const tvGlow = new THREE.PointLight(0x60a5fa, 1.2, 6);
+            tvGlow.position.set(5.1, 5.1, 1.5);
+            shipGroup.add(tvGlow);
+
+            interactables.push({
+                mesh: tvFrame,
+                type: 'tv',
+                label: '[E] Kamaradaki TV Kontrolü (Video Yükle / Ayarla)',
+                range: 3.4,
+                data: {}
+            });
+
+            addStairs(0, 3.5, 4.5, 2.4, 3.5, 5.5, 1);
+
+            addShipLight(0, 6.6, 12, 3.5, false, 1.6);
+            addShipLight(0, 6.6, 2, 3.5, true, 1.8);
+            addShipLight(-4, 6.6, 1.5, 3.5, false, 1.4);
+            addShipLight(4, 6.6, -1.0, 3.5, false, 1.4);
+            addShipLight(0, 6.6, -8, 3.5, true, 1.8);
+
+            // --- 3. ÜST GÜVERTE (Y = 7.0) & SAKİN İSKELE ---
+            addBox(12.4, 0.3, 20.5, 0, 6.85, -5.75, matFloor);
+            addBox(4.8, 0.3, 6.0, -3.8, 6.85, 7.5, matFloor);
+            addBox(4.8, 0.3, 6.0, 3.8, 6.85, 7.5, matFloor);
+            addBox(12.4, 0.3, 5.5, 0, 6.85, 13.25, matFloor);
+
+            addBox(0.25, 1.1, 32, -6.1, 7.55, 0, matWall);
+            addBox(0.25, 1.1, 32, 6.1, 7.55, 0, matWall);
+            addBox(12.4, 1.1, 0.25, 0, 7.55, -16, matWall);
+            addBox(12.4, 1.1, 0.25, 0, 7.55, 16, matWall);
+
+            // Sakin Mod Ahşap Balıkçı İskelesi (Gemi pruvası önünde Z = -16..-25)
+            const pierGroup = new THREE.Group();
+            const pierDeck = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.35, 10), matWood);
+            pierDeck.position.set(0, -0.3, -20.5);
+            pierDeck.receiveShadow = true;
+            pierGroup.add(pierDeck);
+            shipGroup.add(pierGroup);
+            window.pierGroup = pierGroup;
+
+            colliders.push({
+                minX: -2.75, maxX: 2.75,
+                minY: -0.48, maxY: -0.12,
+                minZ: -25.5, maxZ: -15.5,
+                active: true
+            });
+
+            // Köprüüstü
+            addBox(8.4, 3.2, 0.3, 0, 8.6, -13, matGlass);
+            addBox(0.3, 3.2, 7.0, -4.2, 8.6, -9.5, matWall);
+            addBox(0.3, 3.2, 7.0, 4.2, 8.6, -9.5, matWall);
+            addBox(8.4, 0.3, 7.0, 0, 10.2, -9.5, matWall);
+
+            addBox(3.0, 3.2, 0.3, -2.7, 8.6, -6.0, matWall);
+            addBox(3.0, 3.2, 0.3, 2.7, 8.6, -6.0, matWall);
+            addBox(2.4, 0.8, 0.3, 0, 9.8, -6.0, matWall);
+            addDoor(0, 7.0, -6.0, 2.3, 2.4, 0.28, { locked: true, reqKey: true });
+
+            addBox(5.5, 1.0, 1.1, 0, 7.5, -11.8, matWall);
+            addShipLight(0, 9.9, -9.5, 7.0, true, 2.0);
+            addShipLight(-4.5, 8.5, 2.0, 7.0, false, 1.8);
+            addShipLight(4.5, 8.5, 2.0, 7.0, false, 1.8);
+
+            // Görev Nesneleri (Terör Modu)
+            const keyGroup = new THREE.Group();
+            const keyRing = new THREE.Mesh(
+                new THREE.TorusGeometry(0.14, 0.04, 8, 16),
+                new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xd97706, emissiveIntensity: 0.7, metalness: 0.8 })
+            );
+            const keyShaft = new THREE.Mesh(
+                new THREE.BoxGeometry(0.06, 0.32, 0.04),
+                new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xd97706, emissiveIntensity: 0.7, metalness: 0.8 })
+            );
+            keyShaft.position.y = -0.22;
+            keyGroup.add(keyRing, keyShaft);
+            keyGroup.position.set(-4.5, 4.55, 0.5);
+            shipGroup.add(keyGroup);
+
+            const keyGlow = new THREE.PointLight(0xfbbf24, 1.2, 4);
+            keyGlow.position.set(-4.5, 4.7, 0.5);
+            shipGroup.add(keyGlow);
+
+            interactables.push({
+                mesh: keyGroup,
+                type: 'key',
+                label: '[E] Köprüüstü Anahtarını Al',
+                range: 2.6,
+                data: { glow: keyGlow, collected: false }
+            });
+
+            const leverStick = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.04, 0.04, 0.65),
+                new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xb91c1c, emissiveIntensity: 0.6 })
+            );
+            leverStick.position.set(1.8, 8.45, -11.8);
+            leverStick.rotation.x = 0.45;
+            shipGroup.add(leverStick);
+
+            interactables.push({
+                mesh: leverStick,
+                type: 'lever',
+                label: '[E] Filika Serbest Bırakma Kolunu Çek',
+                range: 2.8,
+                data: { stick: leverStick, pulled: false }
+            });
+
+            const lifeboatGroup = new THREE.Group();
+            const boatHull = new THREE.Mesh(
+                new THREE.BoxGeometry(2.1, 1.1, 4.8),
+                new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.4 })
+            );
+            const boatCanopy = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.95, 1.05, 4.2, 8, 1, false, 0, Math.PI),
+                new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 })
+            );
+            boatCanopy.rotation.z = Math.PI / 2;
+            boatCanopy.rotation.y = Math.PI / 2;
+            boatCanopy.position.y = 0.55;
+            lifeboatGroup.add(boatHull, boatCanopy);
+            lifeboatGroup.position.set(4.6, 7.6, 1.5);
+            shipGroup.add(lifeboatGroup);
+
+            const boatLight = new THREE.PointLight(0x22c55e, 1.5, 6);
+            boatLight.position.set(4.6, 9.0, 1.5);
+            shipGroup.add(boatLight);
+
+            interactables.push({
+                mesh: boatHull,
+                type: 'lifeboat',
+                label: '[E] Filikaya Bin ve Kaç',
+                range: 3.5,
+                data: { group: lifeboatGroup }
+            });
+        }
+
+        const innerWaterGeo = new THREE.PlaneGeometry(11.8, 31.8, 24, 48);
+        innerWaterGeo.rotateX(-Math.PI / 2);
+        const innerWaterMat = new THREE.MeshStandardMaterial({
+            color: 0x0284c7,
+            emissive: 0x0369a1,
+            emissiveIntensity: 0.25,
+            transparent: true,
+            opacity: 0.68,
+            roughness: 0.15,
+            metalness: 0.6,
+            side: THREE.DoubleSide
+        });
+        const innerWaterMesh = new THREE.Mesh(innerWaterGeo, innerWaterMat);
+        innerWaterMesh.position.set(0, gameState.waterLevelLocal, 0);
+        shipGroup.add(innerWaterMesh);
+
+        const oceanGeo = new THREE.PlaneGeometry(360, 360, 40, 40);
+        oceanGeo.rotateX(-Math.PI / 2);
+        const oceanMat = new THREE.MeshStandardMaterial({
+            color: 0x061626,
+            roughness: 0.25,
+            metalness: 0.8
+        });
+        const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+        oceanMesh.position.y = -1.2;
+        scene.add(oceanMesh);
+
+        const rainCount = 1600;
+        const rainGeo = new THREE.BufferGeometry();
+        const rainPositions = new Float32Array(rainCount * 3);
+        for (let i = 0; i < rainCount; i++) {
+            rainPositions[i * 3] = (Math.random() - 0.5) * 60;
+            rainPositions[i * 3 + 1] = Math.random() * 35;
+            rainPositions[i * 3 + 2] = (Math.random() - 0.5) * 60;
+        }
+        rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+        const rainMat = new THREE.PointsMaterial({
+            color: 0x93c5fd,
+            size: 0.12,
+            transparent: true,
+            opacity: 0.55
+        });
+        const rainSystem = new THREE.Points(rainGeo, rainMat);
+        scene.add(rainSystem);
+
+        buildShip();
+
+        // ============================================================================
+        // 5. BALIK TUTMA MİNİ OYUNU (Sakin Mod)
+        // ============================================================================
+        const FISH_SPECIES = [
+            'Gümüş İstavrit',
+            'Kızıl Mercan',
+            'Mavi Çipura',
+            'Ege Levreği',
+            'Altın Palamut',
+            'İnci Kefali'
+        ];
+
+        function handleFishingAction() {
+            if (!gameState.isRunning) return;
+            if (gameState.mode !== 'calm') {
+                showToast('Balık tutmak için başlangıç ekranından "Sakin Mod • Balık Tutma" seçmelisin.', 'border-teal-500 bg-slate-950/95');
+                return;
+            }
+
+            const f = gameState.fishing;
+            const banner = document.getElementById('fishingStatusBanner');
+            const statusText = document.getElementById('fishingStatusText');
+            const bar = document.getElementById('fishingProgressBar');
+
+            if (f.state === 'idle') {
+                const lookDir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, player.yaw, 0, 'YXZ'));
+                const castPos = new THREE.Vector3(
+                    player.pos.x + lookDir.x * 4.5,
+                    -0.35,
+                    player.pos.z + lookDir.z * 4.5
+                );
+                bobberMesh.position.copy(castPos);
+                bobberMesh.visible = true;
+                rodGroup.visible = true;
+                fishingLine.visible = true;
+
+                f.state = 'waiting';
+                f.timer = 0;
+                f.biteWindow = 2.5 + Math.random() * 3.5;
+
+                banner.classList.remove('hidden');
+                statusText.textContent = 'Olta atıldı... Balığın vurmasını bekle';
+                bar.style.width = '15%';
+                soundEngine.playInteract(true);
+            } else if (f.state === 'waiting') {
+                // Erken çekme: oltayı topla
+                resetFishingState('Olta toplandı.');
+            } else if (f.state === 'bite') {
+                // Balık yakalandı!
+                const species = FISH_SPECIES[Math.floor(Math.random() * FISH_SPECIES.length)];
+                const weight = (0.3 + Math.random() * 2.4).toFixed(1);
+                f.caughtCount += 1;
+                f.caughtList.unshift(`${species} (${weight} kg)`);
+
+                soundEngine.playFishCatch();
+                updateCalmFishUI();
+                broadcastOnlineEvent('fish_caught', { species, weight });
+                resetFishingState(`Harika! ${species} (${weight} kg) yakaladın!`);
+            }
+        }
+
+        function resetFishingState(toastMsg = '') {
+            gameState.fishing.state = 'idle';
+            gameState.fishing.timer = 0;
+            bobberMesh.visible = false;
+            rodGroup.visible = false;
+            fishingLine.visible = false;
+            document.getElementById('fishingStatusBanner').classList.add('hidden');
+            if (toastMsg) {
+                showToast(toastMsg, 'border-teal-400 bg-teal-950/95');
+            }
+        }
+
+        function updateCalmFishUI() {
+            document.getElementById('fishCountDisplay').textContent = String(gameState.fishing.caughtCount);
+            const listEl = document.getElementById('fishListMini');
+            if (gameState.fishing.caughtList.length === 0) return;
+            listEl.innerHTML = gameState.fishing.caughtList
+                .slice(0, 5)
+                .map(item => `<div class="text-teal-200">🐟 ${item}</div>`)
+                .join('');
+        }
+
+        function updateFishingLogic(dt, now) {
+            if (gameState.mode !== 'calm' || !gameState.isRunning) {
+                rodGroup.visible = false;
+                bobberMesh.visible = false;
+                fishingLine.visible = false;
+                return;
+            }
+
+            // Oltayı oyuncunun sağ eline hizala
+            const rightVec = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, player.yaw, 0, 'YXZ'));
+            const fwdVec = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, player.yaw, 0, 'YXZ'));
+            const tipPos = new THREE.Vector3(
+                player.pos.x + rightVec.x * 0.45 + fwdVec.x * 1.4,
+                player.pos.y + player.height * 0.85,
+                player.pos.z + rightVec.z * 0.45 + fwdVec.z * 1.4
+            );
+
+            if (rodGroup.visible) {
+                rodGroup.position.set(
+                    player.pos.x + rightVec.x * 0.35 + fwdVec.x * 0.4,
+                    player.pos.y + player.height * 0.72,
+                    player.pos.z + rightVec.z * 0.35 + fwdVec.z * 0.4
+                );
+                rodGroup.rotation.order = 'YXZ';
+                rodGroup.rotation.y = player.yaw;
+                rodGroup.rotation.x = 0.25;
+            }
+
+            const f = gameState.fishing;
+            const statusText = document.getElementById('fishingStatusText');
+            const bar = document.getElementById('fishingProgressBar');
+
+            if (f.state === 'waiting') {
+                f.timer += dt;
+                bobberMesh.position.y = -0.35 + Math.sin(now * 0.004) * 0.05;
+                const pct = Math.min(85, 15 + (f.timer / f.biteWindow) * 70);
+                bar.style.width = `${pct}%`;
+
+                if (f.timer >= f.biteWindow) {
+                    f.state = 'bite';
+                    f.timer = 0;
+                    f.biteWindow = 2.6; // Yakalama penceresi
+                    statusText.textContent = '🎣 BALIK VURDU! Hemen [F] veya OLTA butonuna bas!';
+                    bar.style.width = '100%';
+                    soundEngine.playInteract(true);
+                }
+            } else if (f.state === 'bite') {
+                f.timer += dt;
+                bobberMesh.position.y = -0.55 + Math.sin(now * 0.035) * 0.14;
+                const remPct = Math.max(0, 100 - (f.timer / f.biteWindow) * 100);
+                bar.style.width = `${remPct}%`;
+                if (f.timer >= f.biteWindow) {
+                    resetFishingState('Balık kancadan kurtuldu! Tekrar olta atabilirsin.');
+                }
+            }
+
+            if (fishingLine.visible && bobberMesh.visible) {
+                const posAttr = fishingLine.geometry.attributes.position;
+                posAttr.setXYZ(0, tipPos.x, tipPos.y, tipPos.z);
+                posAttr.setXYZ(1, bobberMesh.position.x, bobberMesh.position.y, bobberMesh.position.z);
+                posAttr.needsUpdate = true;
+            }
+        }
+
+        // ============================================================================
+        // 6. ONLİNE MOD (BroadcastChannel Çoklu Sekme / Oda Senkronizasyonu + Sohbet)
+        // ============================================================================
+        let channel = null;
+        let lastSyncSent = 0;
+
+        function initOnlineChannel() {
+            if (!gameState.onlineEnabled || !('BroadcastChannel' in window)) {
+                document.getElementById('onlineHudBadge').classList.add('hidden');
+                document.getElementById('chatToggleBtn').classList.add('hidden');
+                return;
+            }
+
+            if (channel) channel.close();
+            channel = new BroadcastChannel('gemi_oyunu_oda_' + gameState.roomCode);
+
+            document.getElementById('onlineHudBadge').classList.remove('hidden');
+            document.getElementById('hudRoomCode').textContent = gameState.roomCode;
+            document.getElementById('chatToggleBtn').classList.remove('hidden');
+
+            channel.onmessage = (ev) => {
+                const msg = ev.data;
+                if (!msg || msg.senderId === gameState.playerId || msg.roomCode !== gameState.roomCode) return;
+
+                if (msg.type === 'state') {
+                    let rp = remotePlayers.get(msg.senderId);
+                    if (!rp) {
+                        const avatar = createPlayerAvatarMesh(0x38bdf8, msg.name || 'Oyuncu');
+                        shipGroup.add(avatar);
+                        rp = {
+                            mesh: avatar,
+                            targetPos: new THREE.Vector3(msg.x, msg.y, msg.z),
+                            targetYaw: msg.yaw || 0,
+                            lastSeen: performance.now()
+                        };
+                        remotePlayers.set(msg.senderId, rp);
+                        appendChatLine('Sistem', `${msg.name || 'Bir oyuncu'} odaya katıldı.`, 'text-emerald-400');
+                    } else {
+                        rp.targetPos.set(msg.x, msg.y, msg.z);
+                        rp.targetYaw = msg.yaw || 0;
+                        rp.lastSeen = performance.now();
+                    }
+                    updatePeerCount();
+                } else if (msg.type === 'chat') {
+                    appendChatLine(msg.name || 'Oyuncu', msg.text, 'text-indigo-300');
+                } else if (msg.type === 'fish_caught') {
+                    appendChatLine('🎣 Balıkçı', `${msg.name} bir ${msg.species} (${msg.weight} kg) yakaladı!`, 'text-teal-300');
+                }
+            };
+
+            broadcastOnlineEvent('state', {
+                x: player.pos.x,
+                y: player.pos.y,
+                z: player.pos.z,
+                yaw: player.yaw
+            });
+        }
+
+        function broadcastOnlineEvent(type, payload = {}) {
+            if (!gameState.onlineEnabled || !channel) return;
+            channel.postMessage({
+                type,
+                roomCode: gameState.roomCode,
+                senderId: gameState.playerId,
+                name: gameState.playerName,
+                ...payload
+            });
+        }
+
+        function updatePeerCount() {
+            const now = performance.now();
+            for (const [id, rp] of remotePlayers.entries()) {
+                if (now - rp.lastSeen > 8000) {
+                    shipGroup.remove(rp.mesh);
+                    remotePlayers.delete(id);
+                } else {
+                    rp.mesh.position.lerp(rp.targetPos, 0.22);
+                    rp.mesh.rotation.y = rp.targetYaw;
+                }
+            }
+            document.getElementById('hudPeerCount').textContent = String(1 + remotePlayers.size);
+        }
+
+        function toggleChatDrawer() {
+            const drawer = document.getElementById('chatDrawer');
+            drawer.classList.toggle('hidden');
+            if (!drawer.classList.contains('hidden') && document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+        }
+
+        function sendChatMessage(e) {
+            e.preventDefault();
+            const inp = document.getElementById('chatInput');
+            const text = inp.value.trim();
+            if (!text) return;
+            appendChatLine(gameState.playerName + ' (Sen)', text, 'text-amber-300');
+            broadcastOnlineEvent('chat', { text });
+            inp.value = '';
+        }
+
+        function appendChatLine(sender, text, senderClass = 'text-slate-300') {
+            const box = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.innerHTML = `<strong class="${senderClass}">${escapeHtml(sender)}:</strong> <span class="text-slate-200">${escapeHtml(text)}</span>`;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+        }
+
+        // ============================================================================
+        // 7. KAMERA SİSTEMİ (1. Şahıs FPS, 3. Şahıs Omuz Üstü, Güverte Gözlem Kamerası)
+        // ============================================================================
+        const CAMERA_LABELS = [
+            '📷 Kamera: 1. Şahıs (C)',
+            '📷 Kamera: 3. Şahıs (C)',
+            '📷 Kamera: Güverte Gözlem (C)'
+        ];
+
+        function cycleCameraMode() {
+            gameState.cameraMode = (gameState.cameraMode + 1) % 3;
+            document.getElementById('camModeBtn').textContent = CAMERA_LABELS[gameState.cameraMode];
+            localAvatar.visible = (gameState.cameraMode === 1);
+            showToast(CAMERA_LABELS[gameState.cameraMode].replace(' (C)', '') + ' aktif edildi.', 'border-amber-400 bg-slate-950/95');
+        }
+
+        function updateCameraRig(now, moveLen) {
+            localAvatar.position.copy(player.pos);
+            localAvatar.rotation.y = player.yaw;
+
+            if (gameState.cameraMode === 0) {
+                // 1. Şahıs FPS
+                const bob = (moveLen > 0 && player.onGround && !player.isUnderwater) ? Math.sin(now * 0.012) * 0.045 : 0;
+                camera.position.set(player.pos.x, player.pos.y + player.height + bob, player.pos.z);
+                camera.rotation.order = 'YXZ';
+                camera.rotation.y = player.yaw;
+                camera.rotation.x = player.pitch;
+            } else if (gameState.cameraMode === 1) {
+                // 3. Şahıs Omuz Üstü / Takip Kamerası
+                const backVec = new THREE.Vector3(0, 0, 1).applyEuler(new THREE.Euler(player.pitch * 0.5, player.yaw, 0, 'YXZ'));
+                const desired = new THREE.Vector3(
+                    player.pos.x + backVec.x * 2.8,
+                    player.pos.y + player.height + 0.65,
+                    player.pos.z + backVec.z * 2.8
+                );
+                desired.x = Math.max(-5.5, Math.min(5.5, desired.x));
+                desired.z = Math.max(-15.5, Math.min(15.5, desired.z));
+                camera.position.lerp(desired, 0.22);
+                camera.lookAt(player.pos.x, player.pos.y + 1.35, player.pos.z);
+            } else {
+                // 2: Üst Güverte / İskele Panoramik Gözlem Kamerası
+                const obsPos = new THREE.Vector3(0, 11.5, 4.5);
+                camera.position.lerp(obsPos, 0.12);
+                camera.lookAt(player.pos.x, player.pos.y + 1.1, player.pos.z);
+            }
+        }
+
+        // ============================================================================
+        // 8. KONTROLLER, DOKUNMATİK ANALOG JOYSTICK & ÇARPIŞMALAR
+        // ============================================================================
+        document.addEventListener('keydown', (e) => {
+            if (document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+            keys[e.code] = true;
+            if (!gameState.isRunning) return;
+            if (e.code === 'KeyE') triggerInteraction();
+            if (e.code === 'KeyF') handleFishingAction();
+            if (e.code === 'KeyC') cycleCameraMode();
+        });
+        document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+        canvas.addEventListener('click', () => {
+            if (gameState.isRunning && !isPointerLocked && window.innerWidth > 768) {
+                canvas.requestPointerLock();
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            isPointerLocked = (document.pointerLockElement === canvas);
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!gameState.isRunning || !isPointerLocked) return;
+            const sensitivity = 0.0022;
+            player.yaw -= e.movementX * sensitivity;
+            player.pitch -= e.movementY * sensitivity;
+            player.pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, player.pitch));
+        });
+
+        // Dokunmatik Ekran Bakış Kontrolü (Sağ taraf)
+        canvas.addEventListener('touchstart', (e) => {
+            if (!gameState.isRunning) return;
+            for (let t of e.changedTouches) {
+                if (t.clientX > window.innerWidth * 0.36 && touchLookId === null) {
+                    touchLookId = t.identifier;
+                    lastTouchX = t.clientX;
+                    lastTouchY = t.clientY;
+                }
+            }
+        }, { passive: true });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (!gameState.isRunning) return;
+            for (let t of e.changedTouches) {
+                if (t.identifier === touchLookId) {
+                    const dx = t.clientX - lastTouchX;
+                    const dy = t.clientY - lastTouchY;
+                    player.yaw -= dx * 0.0055;
+                    player.pitch -= dy * 0.0055;
+                    player.pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, player.pitch));
+                    lastTouchX = t.clientX;
+                    lastTouchY = t.clientY;
+                }
+            }
+        }, { passive: true });
+
+        canvas.addEventListener('touchend', (e) => {
+            for (let t of e.changedTouches) {
+                if (t.identifier === touchLookId) touchLookId = null;
+            }
+        });
+
+        // Sanal Analog Joystick
+        const joystickZone = document.getElementById('joystickZone');
+        const joystickKnob = document.getElementById('joystickKnob');
+        let joystickTouchId = null;
+        let joyX = 0; // -1..1 (sağ/sol)
+        let joyY = 0; // -1..1 (ileri/geri)
+
+        function updateJoystickFromTouch(clientX, clientY) {
+            const rect = joystickZone.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const maxR = rect.width * 0.36;
+            let dx = clientX - cx;
+            let dy = clientY - cy;
+            const dist = Math.hypot(dx, dy);
+            if (dist > maxR) {
+                dx = (dx / dist) * maxR;
+                dy = (dy / dist) * maxR;
+            }
+            joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+            joyX = dx / maxR;
+            joyY = -dy / maxR; // yukarı itince ileri (+1)
+        }
+
+        joystickZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const t = e.changedTouches[0];
+            joystickTouchId = t.identifier;
+            updateJoystickFromTouch(t.clientX, t.clientY);
+        });
+
+        joystickZone.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            for (let t of e.changedTouches) {
+                if (t.identifier === joystickTouchId) {
+                    updateJoystickFromTouch(t.clientX, t.clientY);
+                }
+            }
+        });
+
+        function resetJoystick(e) {
+            for (let t of e.changedTouches) {
+                if (t.identifier === joystickTouchId) {
+                    joystickTouchId = null;
+                    joyX = 0;
+                    joyY = 0;
+                    joystickKnob.style.transform = 'translate(0px, 0px)';
+                }
+            }
+        }
+        joystickZone.addEventListener('touchend', resetJoystick);
+        joystickZone.addEventListener('touchcancel', resetJoystick);
+
+        function bindMobileAction(id, fn) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('touchstart', (e) => { e.preventDefault(); fn(true); });
+            el.addEventListener('touchend', (e) => { e.preventDefault(); fn(false); });
+        }
+        bindMobileAction('btnSprintMobile', (down) => { keys['ShiftLeft'] = down; });
+        bindMobileAction('btnJumpMobile', (down) => { keys['Space'] = down; });
+        document.getElementById('btnInteractMobile').addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            triggerInteraction();
+        });
+        document.getElementById('btnFishMobile').addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            handleFishingAction();
+        });
+
+        function resolveCollisions(oldPos) {
+            player.onGround = false;
+            const r = player.radius;
+            const h = player.height;
+
+            // Sakin modda iskeleye çıkmak için Z sınırını -25.2'ye kadar esnet
+            const minZBound = (gameState.mode === 'calm' && player.pos.z < -15.2) ? -25.2 : -15.5;
+            player.pos.x = Math.max(-5.5, Math.min(5.5, player.pos.x));
+            player.pos.z = Math.max(minZBound, Math.min(15.5, player.pos.z));
+
+            for (let box of colliders) {
+                if (!box.active) continue;
+
+                const overlapX = (player.pos.x + r > box.minX) && (player.pos.x - r < box.maxX);
+                const overlapY = (player.pos.y + h > box.minY) && (player.pos.y < box.maxY);
+                const overlapZ = (player.pos.z + r > box.minZ) && (player.pos.z - r < box.maxZ);
+
+                if (overlapX && overlapY && overlapZ) {
+                    const fromTop = oldPos.y >= box.maxY - 0.15;
+                    const fromBottom = oldPos.y + h <= box.minY + 0.15;
+
+                    if (fromTop && player.vel.y <= 0) {
+                        player.pos.y = box.maxY;
+                        player.vel.y = 0;
+                        player.onGround = true;
+                    } else if (fromBottom && player.vel.y > 0) {
+                        player.pos.y = box.minY - h;
+                        player.vel.y = 0;
+                    } else {
+                        const stepHeight = box.maxY - player.pos.y;
+                        if (stepHeight > 0 && stepHeight <= 0.42) {
+                            player.pos.y = box.maxY;
+                            player.onGround = true;
+                        } else {
+                            const penLeft = (player.pos.x + r) - box.minX;
+                            const penRight = box.maxX - (player.pos.x - r);
+                            const penFront = (player.pos.z + r) - box.minZ;
+                            const penBack = box.maxZ - (player.pos.z - r);
+                            const minPen = Math.min(penLeft, penRight, penFront, penBack);
+
+                            if (minPen === penLeft) player.pos.x = box.minX - r;
+                            else if (minPen === penRight) player.pos.x = box.maxX + r;
+                            else if (minPen === penFront) player.pos.z = box.minZ - r;
+                            else if (minPen === penBack) player.pos.z = box.maxZ + r;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ============================================================================
+        // 9. ETKİLEŞİM & GÖREV YÖNETİMİ
+        // ============================================================================
+        let currentTarget = null;
+        let toastTimeout = null;
+
+        function showToast(msg, colorClass = 'border-amber-500 bg-slate-950/95') {
+            const el = document.getElementById('toastMessage');
+            el.textContent = msg;
+            el.className = `mt-3 px-5 py-2.5 rounded-xl border text-white font-medium text-sm shadow-2xl transition-opacity duration-300 text-center max-w-md ${colorClass}`;
+            el.style.opacity = '1';
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => { el.style.opacity = '0'; }, 3500);
+        }
+
+        function updateInteractableScan() {
+            const eyePos = new THREE.Vector3(player.pos.x, player.pos.y + player.height * 0.9, player.pos.z);
+            const lookDir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(player.pitch, player.yaw, 0, 'YXZ'));
+
+            let bestTarget = null;
+            let bestDist = Infinity;
+
+            for (let item of interactables) {
+                if (item.type === 'key' && item.data.collected) continue;
+                if (item.type === 'lever' && item.data.pulled) continue;
+
+                const targetWorld = new THREE.Vector3();
+                item.mesh.getWorldPosition(targetWorld);
+                const targetLocal = shipGroup.worldToLocal(targetWorld.clone());
+                const dist = eyePos.distanceTo(targetLocal);
+
+                if (dist <= item.range) {
+                    const toTarget = targetLocal.clone().sub(eyePos).normalize();
+                    const angle = lookDir.angleTo(toTarget);
+                    if (angle < 0.72 && dist < bestDist) {
+                        bestDist = dist;
+                        bestTarget = item;
+                    }
+                }
+            }
+
+            currentTarget = bestTarget;
+            const promptEl = document.getElementById('interactPrompt');
+            const crosshair = document.getElementById('crosshair');
+
+            if (bestTarget) {
+                promptEl.textContent = bestTarget.label;
+                promptEl.classList.remove('hidden');
+                crosshair.classList.add('scale-150', 'bg-amber-400');
+            } else {
+                promptEl.classList.add('hidden');
+                crosshair.classList.remove('scale-150', 'bg-amber-400');
+            }
+        }
+
+        function triggerInteraction() {
+            if (!currentTarget) return;
+
+            if (currentTarget.type === 'tv') {
+                openTvModal();
+                soundEngine.playInteract(true);
+                return;
+            }
+
+            if (currentTarget.type === 'door') {
+                const d = currentTarget.data;
+                if (d.locked) {
+                    if (gameState.hasBridgeKey) {
+                        d.locked = false;
+                        showToast('Köprüüstü Anahtarı kullanıldı! Kapı kilidi açıldı.', 'border-emerald-500 bg-emerald-950/90');
+                        soundEngine.playInteract(true);
+                    } else {
+                        showToast('Bu kapı kilitli! Orta güvertedeki kabinden Köprüüstü Anahtarını bulmalısın.', 'border-red-500 bg-red-950/90');
+                        soundEngine.playInteract(false);
+                        return;
+                    }
+                }
+                d.isOpen = !d.isOpen;
+                d.colObj.active = !d.isOpen;
+                if (d.isOpen) {
+                    d.mesh.position.y += 2.25;
+                    currentTarget.label = '[E] Kapıyı Kapat';
+                } else {
+                    d.mesh.position.y -= 2.25;
+                    currentTarget.label = '[E] Su Geçirmez Kapıyı Aç';
+                }
+                soundEngine.playInteract(true);
+            } else if (currentTarget.type === 'key') {
+                currentTarget.data.collected = true;
+                currentTarget.mesh.visible = false;
+                currentTarget.data.glow.intensity = 0;
+                gameState.hasBridgeKey = true;
+                soundEngine.playInteract(true);
+                showToast('Köprüüstü Anahtarı alındı! Üst güvertedeki Köprüüstüne çık.', 'border-amber-400 bg-amber-950/90');
+                updateQuestUI();
+            } else if (currentTarget.type === 'lever') {
+                if (!gameState.hasBridgeKey) {
+                    showToast('Önce anahtarı bulmalısın!', 'border-red-500 bg-red-950/90');
+                    return;
+                }
+                currentTarget.data.pulled = true;
+                currentTarget.data.stick.rotation.x = -0.55;
+                gameState.lifeboatUnlocked = true;
+                soundEngine.playInteract(true);
+                showToast('Filika kilitleri serbest bırakıldı! Üst güverte sancak tarafındaki filikaya koş!', 'border-emerald-400 bg-emerald-950/90');
+                updateQuestUI();
+            } else if (currentTarget.type === 'lifeboat') {
+                if (!gameState.lifeboatUnlocked) {
+                    showToast('Filika vinçlere kilitli! Önce Köprüüstündeki serbest bırakma kolunu çekmelisin.', 'border-red-500 bg-red-950/90');
+                    soundEngine.playInteract(false);
+                    return;
+                }
+                endGame(true, 'Filikayı başarıyla denize indirdin ve batan gemiden sağ kurtuldun!');
+            }
+        }
+
+        function updateQuestUI() {
+            const qKey = document.getElementById('q-key');
+            const qLever = document.getElementById('q-lever');
+            const qEscape = document.getElementById('q-escape');
+            const inv = document.getElementById('inventoryBadges');
+
+            if (gameState.hasBridgeKey) {
+                qKey.classList.add('line-through', 'text-emerald-400');
+                qKey.querySelector('span').textContent = '✓';
+                qKey.querySelector('span').classList.add('bg-emerald-500', 'text-slate-950', 'border-emerald-400');
+                inv.innerHTML = `<span class="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500 text-amber-300 text-xs font-semibold">🔑 Köprüüstü Anahtarı</span>`;
+            }
+            if (gameState.lifeboatUnlocked) {
+                qLever.classList.add('line-through', 'text-emerald-400');
+                qLever.querySelector('span').textContent = '✓';
+                qLever.querySelector('span').classList.add('bg-emerald-500', 'text-slate-950', 'border-emerald-400');
+                qEscape.classList.remove('text-slate-400');
+                qEscape.classList.add('text-amber-300', 'font-semibold');
+            }
+        }
+
+        // ============================================================================
+        // 10. ANA OYUN DÖNGÜSÜ
+        // ============================================================================
+        let lastTime = performance.now();
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+            const rawDt = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+
+            // Yağmur sadece Terör modunda aktif
+            rainSystem.visible = (gameState.mode === 'survival');
+            if (rainSystem.visible) {
+                const rainPos = rainSystem.geometry.attributes.position.array;
+                for (let i = 0; i < rainCount; i++) {
+                    rainPos[i * 3 + 1] -= 22 * rawDt;
+                    if (rainPos[i * 3 + 1] < -2) rainPos[i * 3 + 1] = 32;
+                }
+                rainSystem.geometry.attributes.position.needsUpdate = true;
+            }
+
+            if (!gameState.isRunning || gameState.isGameOver) {
+                renderer.render(scene, camera);
+                return;
+            }
+
+            let progress = 0;
+            let targetRoll = 0;
+
+            if (gameState.mode === 'survival') {
+                const simDt = rawDt * gameState.simSpeed;
+                gameState.timeRemaining = Math.max(0, gameState.timeRemaining - simDt);
+                progress = 1 - (gameState.timeRemaining / TOTAL_SINK_TIME);
+
+                const waveRoll = Math.sin(now * 0.0014) * 0.035;
+                const wavePitch = Math.cos(now * 0.0011) * 0.025;
+                targetRoll = progress * 0.42 + waveRoll;
+                const targetPitch = progress * 0.24 + wavePitch;
+                shipGroup.rotation.z = targetRoll;
+                shipGroup.rotation.x = targetPitch;
+                shipGroup.position.y = -progress * 5.8;
+
+                gameState.waterLevelLocal = -0.3 + progress * 9.8;
+                innerWaterMesh.position.y = gameState.waterLevelLocal;
+                innerWaterMesh.position.x = Math.sin(now * 0.003) * 0.08;
+
+                for (let l of shipLights) {
+                    if (gameState.waterLevelLocal > l.deckY + 2.6) {
+                        l.light.intensity = 0;
+                        l.bulbMat.color.setHex(0x1e293b);
+                    } else {
+                        const flicker = Math.random() > 0.92 ? 0.25 : 1.0;
+                        const pulse = l.isRed ? (0.6 + 0.4 * Math.sin(now * 0.006)) : 1.0;
+                        l.light.intensity = l.baseIntensity * flicker * pulse;
+                    }
+                }
+
+                if (Math.random() > 0.994) {
+                    window.lightningLight.intensity = 3.5;
+                } else {
+                    window.lightningLight.intensity = Math.max(0.15, window.lightningLight.intensity * 0.85);
+                }
+            } else {
+                // SAKİN MOD: Sabit, hafif ve huzurlu dalgalar, batma yok
+                shipGroup.rotation.z = Math.sin(now * 0.0009) * 0.012;
+                shipGroup.rotation.x = Math.cos(now * 0.0007) * 0.008;
+                shipGroup.position.y = 0;
+                gameState.waterLevelLocal = -0.45;
+                innerWaterMesh.position.y = -0.45 + Math.sin(now * 0.002) * 0.03;
+
+                for (let l of shipLights) {
+                    l.light.intensity = l.baseIntensity * 0.85;
+                }
+            }
+
+            const inWater = (player.pos.y + 0.9) < gameState.waterLevelLocal;
+            const headUnderwater = (player.pos.y + player.height * 0.92) < gameState.waterLevelLocal;
+            player.isUnderwater = headUnderwater;
+
+            const uwOverlay = document.getElementById('underwaterOverlay');
+            if (headUnderwater && gameState.mode === 'survival') {
+                uwOverlay.style.opacity = '1';
+                gameState.oxygen = Math.max(0, gameState.oxygen - rawDt * 12);
+                if (gameState.oxygen <= 0) {
+                    endGame(false, 'Yükselen buz gibi sularda nefessiz kalarak boğuldun.');
+                    return;
+                }
+            } else {
+                uwOverlay.style.opacity = headUnderwater ? '0.55' : '0';
+                gameState.oxygen = Math.min(100, gameState.oxygen + rawDt * 25);
+            }
+
+            // Klavye + Sanal Joystick Girdisi
+            let forward = joyY;
+            let strafe = joyX;
+            if (keys['KeyW'] || keys['ArrowUp']) forward += 1;
+            if (keys['KeyS'] || keys['ArrowDown']) forward -= 1;
+            if (keys['KeyD'] || keys['ArrowRight']) strafe += 1;
+            if (keys['KeyA'] || keys['ArrowLeft']) strafe -= 1;
+            forward = Math.max(-1, Math.min(1, forward));
+            strafe = Math.max(-1, Math.min(1, strafe));
+
+            const isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && gameState.stamina > 5 && !inWater;
+            if (isSprinting && (Math.abs(forward) > 0.1 || Math.abs(strafe) > 0.1)) {
+                gameState.stamina = Math.max(0, gameState.stamina - rawDt * 22);
+            } else {
+                gameState.stamina = Math.min(100, gameState.stamina + rawDt * 15);
+            }
+
+            const baseSpeed = inWater ? 2.6 : (isSprinting ? 5.6 : 3.7);
+            const sinY = Math.sin(player.yaw);
+            const cosY = Math.cos(player.yaw);
+
+            const moveX = (-sinY * forward + cosY * strafe);
+            const moveZ = (-cosY * forward - sinY * strafe);
+            const moveLen = Math.hypot(moveX, moveZ);
+
+            const oldPos = player.pos.clone();
+
+            if (moveLen > 0.04) {
+                const clampedMag = Math.min(1, moveLen);
+                player.pos.x += (moveX / moveLen) * clampedMag * baseSpeed * rawDt;
+                player.pos.z += (moveZ / moveLen) * clampedMag * baseSpeed * rawDt;
+
+                soundEngine.stepTimer += rawDt * (isSprinting ? 1.5 : 1.0);
+                if (soundEngine.stepTimer > 0.45 && (player.onGround || inWater)) {
+                    soundEngine.playStep(inWater);
+                    soundEngine.stepTimer = 0;
+                }
+            }
+
+            if (gameState.mode === 'survival') {
+                player.pos.x += Math.sin(targetRoll) * 0.45 * rawDt;
+            }
+
+            if (inWater) {
+                player.vel.y *= 0.85;
+                if (keys['Space']) {
+                    player.vel.y = 3.2;
+                } else {
+                    player.vel.y -= 1.1 * rawDt;
+                }
+            } else {
+                if (keys['Space'] && player.onGround) {
+                    player.vel.y = 5.4;
+                    player.onGround = false;
+                }
+                player.vel.y -= 14.5 * rawDt;
+            }
+
+            player.pos.y += player.vel.y * rawDt;
+            if (player.pos.y < -0.35) {
+                player.pos.y = -0.35;
+                player.vel.y = 0;
+                player.onGround = true;
+            }
+
+            resolveCollisions(oldPos);
+
+            updateCameraRig(now, moveLen);
+            updateFishingLogic(rawDt, now);
+            updateInteractableScan();
+            updateHUD(progress, targetRoll);
+
+            // Online konum senkronizasyonu (~15 Hz)
+            if (now - lastSyncSent > 66) {
+                lastSyncSent = now;
+                broadcastOnlineEvent('state', {
+                    x: player.pos.x,
+                    y: player.pos.y,
+                    z: player.pos.z,
+                    yaw: player.yaw
+                });
+            }
+            updatePeerCount();
+
+            if (gameState.mode === 'survival' && gameState.timeRemaining <= 0) {
+                endGame(false, '10 dakika doldu ve MV Karadeniz karanlık sulara tamamen gömüldü.');
+                return;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // ============================================================================
+        // 11. ARAYÜZ & BAŞLATMA KONTROLLERİ
+        // ============================================================================
+        function selectGameMode(mode) {
+            gameState.mode = mode;
+            const survCard = document.getElementById('modeSurvivalCard');
+            const calmCard = document.getElementById('modeCalmCard');
+            const startBtn = document.getElementById('startBtn');
+
+            if (mode === 'survival') {
+                survCard.className = 'text-left p-3.5 rounded-xl border-2 border-red-500 bg-red-950/30 transition cursor-pointer';
+                calmCard.className = 'text-left p-3.5 rounded-xl border border-slate-700 bg-slate-900/70 hover:border-teal-500/60 transition cursor-pointer';
+                startBtn.className = 'w-full py-3.5 sm:py-4 rounded-xl bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-display font-bold text-base sm:text-lg tracking-wider uppercase shadow-lg transition transform hover:scale-[1.01] active:scale-[0.99] cursor-pointer';
+                startBtn.textContent = '10 DAKİKA TERÖR - Oyuna Başla';
+            } else {
+                calmCard.className = 'text-left p-3.5 rounded-xl border-2 border-teal-400 bg-teal-950/30 transition cursor-pointer';
+                survCard.className = 'text-left p-3.5 rounded-xl border border-slate-700 bg-slate-900/70 hover:border-red-500/60 transition cursor-pointer';
+                startBtn.className = 'w-full py-3.5 sm:py-4 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-display font-bold text-base sm:text-lg tracking-wider uppercase shadow-lg transition transform hover:scale-[1.01] active:scale-[0.99] cursor-pointer';
+                startBtn.textContent = 'SAKİN MOD - Balık Tutmaya Başla';
+            }
+        }
+
+        function randomRoomCode() {
+            const codes = ['LIMAN01', 'EGE2026', 'KAPTAN7', 'SAHIL42', 'MARTI99'];
+            document.getElementById('roomCodeInput').value = codes[Math.floor(Math.random() * codes.length)];
+        }
+
+        function updateHUD(progress, rollRad) {
+            if (gameState.mode === 'survival') {
+                const mins = Math.floor(gameState.timeRemaining / 60);
+                const secs = Math.floor(gameState.timeRemaining % 60);
+                const timerEl = document.getElementById('timerDisplay');
+                timerEl.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                if (gameState.timeRemaining < 60) {
+                    timerEl.classList.add('text-red-500', 'animate-pulse');
+                }
+                document.getElementById('tiltStat').textContent = `${Math.round(Math.abs(rollRad) * 57.3)}°`;
+                document.getElementById('waterStat').textContent = `%${Math.round(progress * 100)}`;
+            }
+
+            const deckEl = document.getElementById('deckLocation');
+            if (player.pos.z < -15.5) deckEl.textContent = 'Balıkçı İskelesi';
+            else if (player.pos.y < 3.2) deckEl.textContent = 'Alt Güverte (Makine D.)';
+            else if (player.pos.y < 6.7) deckEl.textContent = 'Orta Güverte (Kabin & TV)';
+            else deckEl.textContent = 'Üst Güverte & Köprüüstü';
+
+            const oxPct = Math.round(gameState.oxygen);
+            document.getElementById('oxygenText').textContent = `%${oxPct}`;
+            document.getElementById('oxygenBar').style.width = `${oxPct}%`;
+
+            const stPct = Math.round(gameState.stamina);
+            document.getElementById('staminaText').textContent = `%${stPct}`;
+            document.getElementById('staminaBar').style.width = `${stPct}%`;
+        }
+
+        function setSimSpeed(speed) {
+            gameState.simSpeed = speed;
+            [1, 5, 10].forEach(s => {
+                const btn = document.getElementById(`speed${s}`);
+                btn.className = (s === speed)
+                    ? 'px-2 py-0.5 rounded bg-red-600 text-white font-semibold transition cursor-pointer'
+                    : 'px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition cursor-pointer';
+            });
+            showToast(`Simülasyon hızı ${speed}x olarak ayarlandı.`);
+        }
+
+        function toggleTouchControls() {
+            document.getElementById('touchControls').classList.toggle('hidden');
+        }
+
+        function toggleAudioMute() {
+            const muted = soundEngine.toggleMute();
+            document.getElementById('muteBtn').textContent = muted ? '🔇 Ses Kapalı' : '🔊 Ses Açık';
+        }
+
+        function startGame() {
+            gameState.playerName = (document.getElementById('playerNameInput').value || 'Kaptan').trim();
+            gameState.roomCode = (document.getElementById('roomCodeInput').value || 'LIMAN01').trim().toUpperCase();
+            gameState.onlineEnabled = document.getElementById('onlineToggle').checked;
+
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+
+            if (gameState.mode === 'survival') {
+                document.getElementById('survivalHudPanel').classList.remove('hidden');
+                document.getElementById('calmHudPanel').classList.add('hidden');
+                document.getElementById('alarmVignette').classList.remove('hidden');
+                document.getElementById('questList').classList.remove('hidden');
+                document.getElementById('calmGuideList').classList.add('hidden');
+                document.getElementById('rightPanelTitle').textContent = 'Görevler';
+                document.getElementById('fishDesktopBtn').classList.add('hidden');
+                document.getElementById('btnFishMobile').classList.add('hidden');
+                scene.background = new THREE.Color(0x030712);
+                scene.fog = new THREE.FogExp2(0x040914, 0.025);
+                player.pos.set(0, 0, 12);
+                player.yaw = Math.PI;
+                showToast('ALARM! Gemi su alıyor! Orta güverteden Köprüüstü Anahtarını bul ve üst güverteye kaç!', 'border-red-500 bg-red-950/95');
+            } else {
+                // Sakin Mod: İskele veya üst güverteye yakın başlangıç, aydınlık huzurlu gökyüzü
+                document.getElementById('survivalHudPanel').classList.add('hidden');
+                document.getElementById('calmHudPanel').classList.remove('hidden');
+                document.getElementById('alarmVignette').classList.add('hidden');
+                document.getElementById('questList').classList.add('hidden');
+                document.getElementById('calmGuideList').classList.remove('hidden');
+                document.getElementById('rightPanelTitle').textContent = 'Sakin Rehber';
+                document.getElementById('fishDesktopBtn').classList.remove('hidden');
+                document.getElementById('btnFishMobile').classList.remove('hidden');
+                scene.background = new THREE.Color(0x0f2942);
+                scene.fog = new THREE.FogExp2(0x133859, 0.012);
+                window.ambientLight.color.setHex(0x60a5fa);
+                window.ambientLight.intensity = 1.15;
+                player.pos.set(0, -0.1, -18.5);
+                player.yaw = Math.PI;
+                showToast('Sakin Mod aktif! İskelede balık tutabilir veya orta güvertedeki TV\'ye video yükleyebilirsin.', 'border-teal-400 bg-teal-950/95');
+            }
+
+            if ('ontouchstart' in window || window.innerWidth <= 768) {
+                document.getElementById('touchControls').classList.remove('hidden');
+            } else {
+                canvas.requestPointerLock();
+            }
+
+            soundEngine.init(gameState.mode);
+            initOnlineChannel();
+            gameState.isRunning = true;
+        }
+
+        function endGame(isVictory, reason) {
+            gameState.isGameOver = true;
+            gameState.isRunning = false;
+            if (document.pointerLockElement) document.exitPointerLock();
+
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('alarmVignette').classList.add('hidden');
+            const endScreen = document.getElementById('endScreen');
+            endScreen.classList.remove('hidden');
+
+            const badge = document.getElementById('endBadge');
+            const title = document.getElementById('endTitle');
+            const desc = document.getElementById('endDesc');
+            const stats = document.getElementById('endStats');
+
+            const elapsed = TOTAL_SINK_TIME - gameState.timeRemaining;
+            const eMins = Math.floor(elapsed / 60);
+            const eSecs = Math.floor(elapsed % 60);
+
+            if (isVictory) {
+                badge.textContent = 'KURTULDUN';
+                badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-3 bg-emerald-950 border border-emerald-500 text-emerald-400';
+                title.textContent = 'HAYATTA KALDIN!';
+                desc.textContent = reason;
+            } else {
+                badge.textContent = 'GÖREV BAŞARISIZ';
+                badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-3 bg-red-950 border border-red-500 text-red-400';
+                title.textContent = 'GEMİYLE BİRLİKTE BATTIN';
+                desc.textContent = reason;
+            }
+
+            stats.innerHTML = `
+                <div>Geçen Süre: <strong class="text-white">${eMins} dk ${eSecs} sn</strong></div>
+                <div>Kalan Süre: <strong class="text-amber-400">${Math.floor(gameState.timeRemaining / 60)} dk ${Math.floor(gameState.timeRemaining % 60)} sn</strong></div>
+            `;
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        window.onload = function () {
+            animate(performance.now());
+        };
+    </script>
+</body>
+</html>
